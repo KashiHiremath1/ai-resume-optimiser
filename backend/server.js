@@ -32,23 +32,61 @@ Resume:
 """${text}"""
 `;
 
-    // ⚡ STREAM START
     const result = await model.generateContentStream(prompt);
 
     res.setHeader("Content-Type", "text/plain");
     res.setHeader("Transfer-Encoding", "chunked");
 
+    let fullResponse = "";
+
     for await (const chunk of result.stream) {
       const chunkText = chunk.text();
-      res.write(chunkText);
+
+      fullResponse += chunkText;   // Save complete response
+      res.write(chunkText);        // Send to frontend
     }
 
+    // Try to parse the JSON response
+    let score = null;
+
+    try {
+     const cleanResponse = fullResponse
+  .replace(/```json/g, "")
+  .replace(/```/g, "")
+  .trim();
+
+const parsed = JSON.parse(cleanResponse);
+      score = parsed.score;
+    } catch (e) {
+      console.log("Response is not valid JSON");
+    }
+
+    const Resume = require("./models/Resume");
+
+    await Resume.create({
+      resume: text,
+      analysis: fullResponse,
+      score: score,
+    });
+
     res.end();
+
   } catch (err) {
-    console.log(err);
-    res.status(500).json({ error: err.message });
+  console.error(err);
+
+  if (!res.headersSent) {
+    return res.status(500).json({
+      error: err.message,
+    });
   }
+
+  res.end();
+}
 });
+
+const connectDB = require("./config/db");
+
+connectDB();
 
 app.listen(5000, () => {
   console.log("Server running on 5000");
